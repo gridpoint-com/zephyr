@@ -34,6 +34,7 @@
 	DT_INST_NODE_HAS_PROP(0, antenna_enable_gpios)
 #define HAVE_GPIO_TX_ENABLE	DT_INST_NODE_HAS_PROP(0, tx_enable_gpios)
 #define HAVE_GPIO_RX_ENABLE	DT_INST_NODE_HAS_PROP(0, rx_enable_gpios)
+#define HAVE_GPIO_FE_CTRL  (DT_INST_NODE_HAS_PROP(0, fe_ctrl1_enable_gpios) && !DT_INST_NODE_HAS_PROP(0, tx_enable_gpios))
 
 struct sx126x_config {
 	struct spi_dt_spec bus;
@@ -46,6 +47,12 @@ struct sx126x_config {
 #if HAVE_GPIO_RX_ENABLE
 	struct gpio_dt_spec rx_enable;
 #endif
+#if HAVE_GPIO_FE_CTRL
+	struct gpio_dt_spec fe_ctrl3_enable;
+	struct gpio_dt_spec fe_ctrl2_enable;
+	struct gpio_dt_spec fe_ctrl1_enable;
+#endif
+
 };
 
 struct sx126x_data {
