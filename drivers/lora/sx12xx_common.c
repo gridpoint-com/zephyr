@@ -7,6 +7,7 @@
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/lora.h>
+#include <zephyr/drivers/lora_rssi.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include <zephyr/kernel.h>
@@ -377,6 +378,76 @@ int sx12xx_lora_test_cw(const struct device *dev, uint32_t frequency,
 
 	Radio.SetTxContinuousWave(frequency, tx_power, duration);
 	return 0;
+}
+
+/**
+ * @brief Get RF noise floor measurement
+ *
+ * @param dev Device pointer
+ * @return int16_t Noise floor value in dBm
+ */
+int16_t sx12xx_lora_get_noise_floor(const struct device *dev)
+{
+	int16_t noise_floor = NOISE_FLOOR_DEFAULT_VALUE;
+	int32_t noise_floor_sum = 0;
+	int valid_measurements = 0;
+
+	/* Ensure available, released after measurement */
+	if (!modem_acquire(&dev_data)) {
+		LOG_ERR("Radio is busy");
+		return NOISE_FLOOR_DEFAULT_VALUE;
+	}
+
+	LOG_DBG("Starting noise floor measurement using Radio.Rssi()");
+
+	/* Configure radio for optimal noise floor measurement */
+	Radio.SetModem(MODEM_FSK);
+
+	/* Set radio to continuous reception */
+	Radio.Rx(0);
+
+	/* Take multiple measurements to get a stable reading */
+	for (int i = 0; i < 5; i++) {
+		/* Give radio time to settle before each measurement */
+		k_sleep(K_MSEC(20));
+
+		/* Get noise floor directly from the radio API */
+		int16_t current_noise_floor = Radio.Rssi(MODEM_FSK);
+		LOG_DBG("Noise floor measurement %d: %d dBm", i, current_noise_floor);
+
+		/* Filter out clearly invalid measurements */
+		if (current_noise_floor < 0) {  /* Only accept negative values as valid */
+			noise_floor_sum += current_noise_floor;
+			valid_measurements++;
+		} else {
+			LOG_WRN("Ignoring invalid noise floor: %d dBm", current_noise_floor);
+		}
+	}
+
+	/* Calculate average */
+	if (valid_measurements > 0) {
+		noise_floor = noise_floor_sum / valid_measurements;
+		LOG_DBG("Average noise floor: %d dBm from %d readings", noise_floor, valid_measurements);
+	} else {
+		LOG_WRN("No valid noise floor measurements obtained");
+	}
+
+	/* Restore original radio state - no need to sleep before this */
+	Radio.Sleep();
+
+	/* Release modem when done */
+	modem_release(&dev_data);
+
+	return noise_floor;
+}
+
+int16_t lora_get_noise_floor(const struct device *dev)
+{
+	if (!dev) {
+		return NOISE_FLOOR_DEFAULT_VALUE;
+	}
+
+	return sx12xx_lora_get_noise_floor(dev);
 }
 
 int sx12xx_init(const struct device *dev)
