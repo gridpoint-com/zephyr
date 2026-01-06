@@ -46,6 +46,8 @@ int sx12xx_lora_test_cw(const struct device *dev, uint32_t frequency,
 
 int sx12xx_lora_rssi(const struct device *dev, int16_t *rssi);
 
+int16_t sx12xx_lora_get_noise_floor(const struct device *dev);
+
 int sx12xx_init(const struct device *dev);
 
 #endif /* ZEPHYR_DRIVERS_SX12XX_COMMON_H_ */

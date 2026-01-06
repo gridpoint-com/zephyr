@@ -7,6 +7,7 @@
 
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/lora.h>
+#include <zephyr/drivers/lora_rssi.h>
 #include <zephyr/drivers/spi.h>
 #include <zephyr/kernel.h>
 
@@ -88,6 +89,7 @@ LOG_MODULE_REGISTER(sx127x, CONFIG_LORA_LOG_LEVEL);
 #define SX127xSetPublicNetwork SX1276SetPublicNetwork
 #define SX127xGetWakeupTime SX1276GetWakeupTime
 #define SX127xSetTxContinuousWave SX1276SetTxContinuousWave
+#define SX127xReadRssi SX1276ReadRssi
 
 #else
 #error No SX127x instance in device tree.
@@ -548,6 +550,7 @@ const struct Radio_s Radio = {
 	.RxBoosted = NULL,
 	.SetRxDutyCycle = NULL,
 	.SetTxContinuousWave = SX127xSetTxContinuousWave,
+	.Rssi = SX127xReadRssi,
 };
 
 static int sx127x_antenna_configure(void)
