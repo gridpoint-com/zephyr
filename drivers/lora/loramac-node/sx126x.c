@@ -290,13 +290,6 @@ RadioOperatingModes_t SX126xGetOperatingMode(void)
 	return dev_data.mode;
 }
 
-#if HAVE_GPIO_FE_CTRL
-static const enum {
-	RFO_LP,
-	RFO_HP,
-} pa_output = DT_INST_STRING_UPPER_TOKEN(0, power_amplifier_output);
-#endif
-
 #define LORA_NODE DT_NODELABEL(lora)
 
 
@@ -324,7 +317,7 @@ void SX126xSetOperatingMode(RadioOperatingModes_t mode)
 		sx126x_set_tx_enable(1);
 #endif
 #if HAVE_GPIO_FE_CTRL
-		if (pa_output == RFO_LP) {
+		if (sx126x_get_tx_power_mode() == RFO_LP) {
 			sx126x_set_fe_ctrl(txlp_fe_ctrl_lines[0], txlp_fe_ctrl_lines[1], txlp_fe_ctrl_lines[2]);
 		} else {
 			sx126x_set_fe_ctrl(txhp_fe_ctrl_lines[0], txhp_fe_ctrl_lines[1], txhp_fe_ctrl_lines[2]);

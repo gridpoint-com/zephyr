@@ -16,10 +16,13 @@
 #include <zephyr/irq.h>
 LOG_MODULE_DECLARE(sx126x, CONFIG_LORA_LOG_LEVEL);
 
-static const enum {
-	RFO_LP,
-	RFO_HP,
-} pa_output = DT_INST_STRING_UPPER_TOKEN(0, power_amplifier_output);
+#if HAVE_PA_OUTPUT_LOCKED
+static enum sx126x_pa_output pa_output =
+	DT_INST_STRING_UPPER_TOKEN(0, power_amplifier_output);
+#else
+static enum sx126x_pa_output pa_output = RFO_LP;
+#endif
+static const bool pa_output_locked = HAVE_PA_OUTPUT_LOCKED;
 
 void sx126x_reset(struct sx126x_data *dev_data)
 {
@@ -53,6 +56,18 @@ void sx126x_dio1_irq_disable(struct sx126x_data *dev_data)
 void sx126x_set_tx_params(int8_t power, RadioRampTimes_t ramp_time)
 {
 	uint8_t buf[2];
+	const int8_t lp_max = DT_INST_PROP(0, rfo_lp_max_power);
+
+	if (!pa_output_locked) {
+		/* Auto-select PA output based on requested power level */
+		if (power > lp_max) {
+			pa_output = RFO_HP;
+		} else {
+			pa_output = RFO_LP;
+		}
+	}
+
+	LOG_DBG("tx_params PA mode: %s", pa_output == RFO_LP ? "RFO_LP" : "RFO_HP");
 
 	if (pa_output == RFO_LP) {
 		const int8_t max_power = DT_INST_PROP(0, rfo_lp_max_power);
@@ -110,6 +125,8 @@ void sx126x_set_tx_params(int8_t power, RadioRampTimes_t ramp_time)
 		SX126xWriteRegister(REG_OCP, 0x38);
 	}
 
+	LOG_DBG("tx_params final: reg_power=%d ramp=%u", power, ramp_time);
+
 	buf[0] = power;
 	buf[1] = (uint8_t)ramp_time;
 	SX126xWriteCommand(RADIO_SET_TXPARAMS, buf, 2);
@@ -121,6 +138,11 @@ static void radio_isr(const struct device *dev)
 
 	irq_disable(DT_INST_IRQN(0));
 	k_work_submit(&dev_data->dio1_irq_work);
+}
+
+enum sx126x_pa_output sx126x_get_tx_power_mode(void)
+{
+	return pa_output;
 }
 
 int sx126x_variant_init(const struct device *dev)
