@@ -103,6 +103,12 @@ static void sx12xx_ev_rx_done(uint8_t *payload, uint16_t size, int16_t rssi,
 {
 	struct k_poll_signal *sig = dev_data.operation_done;
 
+	if (!dev_data.async_rx_cb && !sig) {
+		LOG_WRN("RxDone event with no registered consumer "
+			"(modem_usage=%d)",
+			(int)atomic_get(&dev_data.modem_usage));
+	}
+
 	/* Receiving in asynchronous mode */
 	if (dev_data.async_rx_cb) {
 		/* Start receiving again */
@@ -312,6 +318,7 @@ int sx12xx_lora_recv_async(const struct device *dev, lora_recv_cb cb, void *user
 {
 	/* Cancel ongoing reception */
 	if (cb == NULL) {
+		dev_data.async_rx_cb = NULL;
 		if (!modem_release(&dev_data)) {
 			/* Not receiving or already being stopped */
 			return -EINVAL;
