@@ -11,6 +11,7 @@
 
 #include <zephyr/drivers/watchdog.h>
 #include <zephyr/drivers/clock_control/stm32_clock_control.h>
+#include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/sys_clock.h>
 #include <soc.h>
@@ -19,6 +20,11 @@
 #include <stm32_ll_iwdg.h>
 #include <stm32_ll_system.h>
 #include <errno.h>
+
+#if defined(CONFIG_IWDG_STM32_STANDBY_FREEZE) || defined(CONFIG_IWDG_STM32_STANDBY_ACTIVE)
+#include <zephyr/drivers/flash.h>
+#include <zephyr/drivers/flash/stm32_flash_api_extensions.h>
+#endif
 
 #include "wdt_iwdg_stm32.h"
 
@@ -266,3 +272,40 @@ DEVICE_DT_INST_DEFINE(0, iwdg_stm32_init, NULL,
 		    &iwdg_stm32_dev_data, &iwdg_stm32_dev_cfg,
 		    POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE,
 		    &iwdg_stm32_api);
+
+#if defined(CONFIG_IWDG_STM32_STANDBY_FREEZE) || defined(CONFIG_IWDG_STM32_STANDBY_ACTIVE)
+static int iwdg_stm32_configure_standby(void)
+{
+	const struct device *flash_dev =
+		DEVICE_DT_GET(DT_CHOSEN(zephyr_flash_controller));
+	uint32_t option_register_value;
+	int rc;
+
+	rc = flash_ex_op(flash_dev, FLASH_STM32_EX_OP_OPTB_READ, 0,
+			 &option_register_value);
+	if (rc < 0) {
+		return rc;
+	}
+
+	bool in_standby_mode =
+		(option_register_value & FLASH_OPTR_IWDG_STDBY) != 0;
+
+	if (IS_ENABLED(CONFIG_IWDG_STM32_STANDBY_FREEZE) && in_standby_mode) {
+		option_register_value &= ~FLASH_OPTR_IWDG_STDBY;
+	} else if (IS_ENABLED(CONFIG_IWDG_STM32_STANDBY_ACTIVE) &&
+		   !in_standby_mode) {
+		option_register_value |= FLASH_OPTR_IWDG_STDBY;
+	} else {
+		return 0;
+	}
+
+	return flash_ex_op(flash_dev, FLASH_STM32_EX_OP_OPTB_WRITE,
+			   (uintptr_t)option_register_value, NULL);
+}
+
+BUILD_ASSERT(CONFIG_IWDG_STM32_STANDBY_INIT_PRIORITY > CONFIG_FLASH_INIT_PRIORITY,
+	     "IWDG standby init must run after flash driver");
+
+SYS_INIT(iwdg_stm32_configure_standby, POST_KERNEL,
+	 CONFIG_IWDG_STM32_STANDBY_INIT_PRIORITY);
+#endif /* CONFIG_IWDG_STM32_STANDBY_FREEZE || CONFIG_IWDG_STM32_STANDBY_ACTIVE */

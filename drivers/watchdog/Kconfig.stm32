@@ -14,6 +14,48 @@ menuconfig IWDG_STM32
 	help
 	  Enable IWDG driver for STM32 line of MCUs
 
+choice IWDG_STM32_STANDBY
+	prompt "IWDG behavior in standby mode"
+	depends on IWDG_STM32
+	default IWDG_STM32_STANDBY_NO_CHANGE
+	help
+	  Configure whether the IWDG runs during standby mode.
+	  This modifies the IWDG_STDBY option byte if needed.
+	  Selecting "no change" leaves the option byte as-is.
+
+config IWDG_STM32_STANDBY_NO_CHANGE
+	bool "No change"
+	help
+	  Do not modify the IWDG_STDBY option byte.
+
+config IWDG_STM32_STANDBY_FREEZE
+	bool "Freeze IWDG in standby"
+	select FLASH_STM32_OPTION_BYTES
+	select FLASH_EX_OP_ENABLED
+	help
+	  Clear the IWDG_STDBY option byte so the IWDG is frozen
+	  during standby mode. Prevents spurious watchdog resets
+	  when the system enters low-power standby.
+
+config IWDG_STM32_STANDBY_ACTIVE
+	bool "IWDG active in standby"
+	select FLASH_STM32_OPTION_BYTES
+	select FLASH_EX_OP_ENABLED
+	help
+	  Set the IWDG_STDBY option byte so the IWDG continues
+	  running during standby mode.
+
+endchoice
+
+config IWDG_STM32_STANDBY_INIT_PRIORITY
+	int "IWDG standby configuration init priority"
+	depends on IWDG_STM32_STANDBY_FREEZE || IWDG_STM32_STANDBY_ACTIVE
+	default 85
+	help
+	  Initialization priority for the IWDG standby option byte
+	  configuration. It must be greater than FLASH_INIT_PRIORITY
+	  to ensure the flash driver is available for option byte access.
+
 config IWDG_STM32_INITIAL_TIMEOUT
 	int "Value for IWDG timeout in ms"
 	depends on IWDG_STM32
