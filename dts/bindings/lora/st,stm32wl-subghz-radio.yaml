@@ -15,7 +15,6 @@ properties:
 
   power-amplifier-output:
     type: string
-    required: true
     description: |
       Selects between the low- and high-power power amplifier output pin.
     enum:
