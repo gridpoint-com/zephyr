@@ -159,7 +159,7 @@ class Packages(WestCommand):
             if len(requirements) > 0:
                 subprocess.check_call(
                     [sys.executable, "-m", "pip", "install"]
-                    + list(chain.from_iterable([("-r", r) for r in requirements]))
+                    + list(chain.from_iterable([("-r", r.as_posix()) for r in requirements]))
                     + manager_args
                 )
             else:
@@ -169,4 +169,4 @@ class Packages(WestCommand):
         if len(manager_args) > 0:
             self.die(f'west packages pip does not support unknown arguments: "{manager_args}"')
 
-        self.inf("\n".join([f"-r {r}" for r in requirements]))
+        self.inf("\n".join([f"-r {r.as_posix()}" for r in requirements]))

@@ -53,6 +53,16 @@ LOG_MODULE_REGISTER(rtc_stm32, CONFIG_RTC_LOG_LEVEL);
 #define HW_SUBSECOND_SUPPORT 1
 #endif
 
+/* STM32 devices that support subsecond alarms (require RTC_ALRMASSR/RTC_ALRMBSSR registers) */
+#if defined(CONFIG_SOC_SERIES_STM32F1X) || defined(CONFIG_SOC_SERIES_STM32F2X) \
+	|| defined(CONFIG_SOC_SERIES_STM32L1X) || defined(CONFIG_SOC_SERIES_STM32C0X)
+/* STM32F1, STM32F2, STM32L1, and STM32C0 series do not support subsecond alarms */
+#define HW_SUBSECOND_ALARM_SUPPORT (0)
+#else
+/* STM32F3, STM32F4, STM32L0, STM32L4, STM32H7, STM32G0, STM32G4, STM32WL5, STM32WB, STM32U5 support subsecond alarms */
+#define HW_SUBSECOND_ALARM_SUPPORT (1)
+#endif
+
 /* RTC start time: 1st, Jan, 2000 */
 #define RTC_YEAR_REF 2000
 /* struct tm start time:   1st, Jan, 1900 */
@@ -94,7 +104,8 @@ LOG_MODULE_REGISTER(rtc_stm32, CONFIG_RTC_LOG_LEVEL);
 #define RTC_STM32_SUPPORTED_ALARM_FIELDS				\
 	(RTC_ALARM_TIME_MASK_SECOND | RTC_ALARM_TIME_MASK_MINUTE	\
 	| RTC_ALARM_TIME_MASK_HOUR | RTC_ALARM_TIME_MASK_WEEKDAY	\
-	| RTC_ALARM_TIME_MASK_MONTHDAY)
+	| RTC_ALARM_TIME_MASK_MONTHDAY					\
+	| (HW_SUBSECOND_ALARM_SUPPORT ? RTC_ALARM_TIME_MASK_NSEC : 0))
 
 #define RTC_STM32_EXTI_LINE_NUM	DT_INST_PROP_OR(0, alrm_exti_line, 0)
 
@@ -701,8 +712,43 @@ static int rtc_stm32_get_time(const struct device *dev, struct rtc_time *timeptr
 	return 0;
 }
 
+#if HW_SUBSECOND_ALARM_SUPPORT
+/* Subsecond conversion functions */
+
+/**
+ * @brief Convert nanoseconds to RTC subsecond register value
+ * @param nsec Nanoseconds (0-999999999)
+ * @param sync_prescaler RTC sync prescaler value
+ * @return RTC subsecond register value
+ */
+static inline uint32_t rtc_stm32_nsec_to_subsecond(uint32_t nsec, uint32_t sync_prescaler)
+{
+	/* Convert nanoseconds to RTC subsecond register value
+	 * Formula: rtc_subsecond = sync_prescaler - (nsec * (sync_prescaler + 1)) / 1000000000
+	 */
+	uint64_t temp = (uint64_t)nsec * (sync_prescaler + 1);
+	return sync_prescaler - (uint32_t)(temp / 1000000000L);
+}
+
+/**
+ * @brief Convert RTC subsecond register value to nanoseconds
+ * @param rtc_subsecond RTC subsecond register value
+ * @param sync_prescaler RTC sync prescaler value
+ * @return Nanoseconds (0-999999999)
+ */
+static inline uint32_t rtc_stm32_subsecond_to_nsec(uint32_t rtc_subsecond, uint32_t sync_prescaler)
+{
+	/* Convert RTC subsecond register value to nanoseconds
+	 * Formula: nsec = ((sync_prescaler - rtc_subsecond) * 1000000000) / (sync_prescaler + 1)
+	 */
+	uint64_t temp = ((uint64_t)(sync_prescaler - rtc_subsecond)) * 1000000000L;
+	return (uint32_t)(temp / (sync_prescaler + 1));
+}
+#endif /* HW_SUBSECOND_ALARM_SUPPORT */
+
 #ifdef STM32_RTC_ALARM_ENABLED
-static void rtc_stm32_alarm_get_alrm_time(uint16_t id, struct rtc_time *timeptr)
+static inline void rtc_stm32_get_ll_alrm_time(uint16_t id, struct rtc_time *timeptr,
+					      uint32_t sync_prescaler)
 {
 	if (id == RTC_STM32_ALRM_A) {
 		timeptr->tm_sec = bcd2bin(LL_RTC_ALMA_GetSecond(RTC));
@@ -710,6 +756,12 @@ static void rtc_stm32_alarm_get_alrm_time(uint16_t id, struct rtc_time *timeptr)
 		timeptr->tm_hour = bcd2bin(LL_RTC_ALMA_GetHour(RTC));
 		timeptr->tm_wday = bcd2bin(LL_RTC_ALMA_GetWeekDay(RTC));
 		timeptr->tm_mday = bcd2bin(LL_RTC_ALMA_GetDay(RTC));
+#if HW_SUBSECOND_ALARM_SUPPORT
+		uint32_t rtc_subsecond = LL_RTC_ALMA_GetSubSecond(RTC);
+		timeptr->tm_nsec = rtc_stm32_subsecond_to_nsec(rtc_subsecond, sync_prescaler);
+#else
+		timeptr->tm_nsec = 0;
+#endif
 		return;
 	}
 #if RTC_STM32_ALARMS_COUNT > 1
@@ -719,6 +771,12 @@ static void rtc_stm32_alarm_get_alrm_time(uint16_t id, struct rtc_time *timeptr)
 		timeptr->tm_hour = bcd2bin(LL_RTC_ALMB_GetHour(RTC));
 		timeptr->tm_wday = bcd2bin(LL_RTC_ALMB_GetWeekDay(RTC));
 		timeptr->tm_mday = bcd2bin(LL_RTC_ALMB_GetDay(RTC));
+#if HW_SUBSECOND_ALARM_SUPPORT
+		uint32_t rtc_subsecond = LL_RTC_ALMB_GetSubSecond(RTC);
+		timeptr->tm_nsec = rtc_stm32_subsecond_to_nsec(rtc_subsecond, sync_prescaler);
+#else
+		timeptr->tm_nsec = 0;
+#endif
 	}
 #endif /* RTC_STM32_ALARMS_COUNT > 1 */
 }
@@ -773,6 +831,90 @@ static inline uint16_t rtc_stm32_alarm_get_alrm_mask(uint16_t id)
 	return zephyr_alarm_mask;
 }
 
+#if HW_SUBSECOND_ALARM_SUPPORT
+/* Subsecond register access functions */
+
+/**
+ * @brief Read RTC subsecond register (RTC_SSR)
+ * @param rtc_subsecond Pointer to store the subsecond value
+ * @return 0 on success, negative error code on failure
+ */
+static inline int rtc_stm32_read_subsecond(uint32_t *rtc_subsecond)
+{
+	if (rtc_subsecond == NULL) {
+		return -EINVAL;
+	}
+
+	*rtc_subsecond = LL_RTC_TIME_GetSubSecond(RTC);
+	return 0;
+}
+
+/**
+ * @brief Read alarm subsecond register
+ * @param id Alarm ID (RTC_STM32_ALRM_A or RTC_STM32_ALRM_B)
+ * @param rtc_subsecond Pointer to store the subsecond value
+ * @return 0 on success, negative error code on failure
+ */
+static inline int rtc_stm32_read_alarm_subsecond(uint16_t id, uint32_t *rtc_subsecond)
+{
+	if (rtc_subsecond == NULL) {
+		return -EINVAL;
+	}
+
+	if (id == RTC_STM32_ALRM_A) {
+		*rtc_subsecond = LL_RTC_ALMA_GetSubSecond(RTC);
+	} else if (id == RTC_STM32_ALRM_B) {
+		*rtc_subsecond = LL_RTC_ALMB_GetSubSecond(RTC);
+	} else {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline uint32_t rtc_stm32_alarm_get_subsecond_mask(uint16_t id)
+{
+	uint32_t reg;
+
+	if (id == RTC_STM32_ALRM_A) {
+		reg = RTC->ALRMASSR;
+	} else if (id == RTC_STM32_ALRM_B) {
+		reg = RTC->ALRMBSSR;
+	} else {
+		return 0;
+	}
+
+	/*
+	 * MASKSS bitfield position/width differs across STM32 series (4..6 bits),
+	 * but is consistently located starting at bit 24.
+	 */
+	return (reg >> 24) & 0x3F;
+}
+
+/**
+ * @brief Write alarm subsecond register
+ * @param id Alarm ID (RTC_STM32_ALRM_A or RTC_STM32_ALRM_B)
+ * @param rtc_subsecond Subsecond value to write
+ * @return 0 on success, negative error code on failure
+ */
+static inline int rtc_stm32_write_alarm_subsecond(uint16_t id, uint32_t rtc_subsecond)
+{
+	if (id == RTC_STM32_ALRM_A) {
+		LL_RTC_ALMA_SetSubSecond(RTC, rtc_subsecond);
+		/* Compare SS[14:0] (15 bits) */
+		LL_RTC_ALMA_SetSubSecondMask(RTC, 15);
+	} else if (id == RTC_STM32_ALRM_B) {
+		LL_RTC_ALMB_SetSubSecond(RTC, rtc_subsecond);
+		/* Compare SS[14:0] (15 bits) */
+		LL_RTC_ALMB_SetSubSecondMask(RTC, 15);
+	} else {
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif /* HW_SUBSECOND_ALARM_SUPPORT */
+
 static int rtc_stm32_alarm_get_supported_fields(const struct device *dev, uint16_t id,
 					uint16_t *mask)
 {
@@ -795,6 +937,7 @@ static int rtc_stm32_alarm_get_time(const struct device *dev, uint16_t id, uint1
 			struct rtc_time *timeptr)
 {
 	struct rtc_stm32_data *data = dev->data;
+	const struct rtc_stm32_config *cfg = dev->config;
 	int err = 0;
 
 	if ((mask == NULL) || (timeptr == NULL)) {
@@ -812,12 +955,20 @@ static int rtc_stm32_alarm_get_time(const struct device *dev, uint16_t id, uint1
 	}
 
 	memset(timeptr, -1, sizeof(struct rtc_time));
-	rtc_stm32_alarm_get_alrm_time(id, timeptr);
+	rtc_stm32_get_ll_alrm_time(id, timeptr, cfg->sync_prescaler);
 	*mask = rtc_stm32_alarm_get_alrm_mask(id);
+#if HW_SUBSECOND_ALARM_SUPPORT
+	if (rtc_stm32_alarm_get_subsecond_mask(id) != 0) {
+		*mask |= RTC_ALARM_TIME_MASK_NSEC;
+	} else {
+		timeptr->tm_nsec = 0;
+	}
+#else
+	timeptr->tm_nsec = 0;
+#endif
 
-	LOG_DBG("get alarm: mday = %d, wday = %d, hour = %d, min = %d, sec = %d, "
-		"mask = 0x%04x", timeptr->tm_mday, timeptr->tm_wday, timeptr->tm_hour,
-		timeptr->tm_min, timeptr->tm_sec, *mask);
+	LOG_DBG("get alarm: %d/%d %d:%d:%d.%d mask=0x%04x", timeptr->tm_mday, timeptr->tm_wday,
+		timeptr->tm_hour, timeptr->tm_min, timeptr->tm_sec, timeptr->tm_nsec, *mask);
 
 unlock:
 	k_spin_unlock(&data->lock, key);
@@ -829,6 +980,7 @@ static int rtc_stm32_alarm_set_time(const struct device *dev, uint16_t id, uint1
 			const struct rtc_time *timeptr)
 {
 	struct rtc_stm32_data *data = dev->data;
+	const struct rtc_stm32_config *cfg = dev->config;
 	struct rtc_stm32_alrm *p_rtc_alrm;
 	int err = 0;
 
@@ -916,6 +1068,23 @@ static int rtc_stm32_alarm_set_time(const struct device *dev, uint16_t id, uint1
 
 	/* Disable the write protection for RTC registers */
 	LL_RTC_DisableWriteProtection(RTC);
+
+#if HW_SUBSECOND_ALARM_SUPPORT
+	/* Handle subsecond alarm setting if requested */
+	if (mask & RTC_ALARM_TIME_MASK_NSEC) {
+		uint32_t rtc_subsecond = rtc_stm32_nsec_to_subsecond(timeptr->tm_nsec, cfg->sync_prescaler);
+		rtc_stm32_write_alarm_subsecond(id, rtc_subsecond);
+	} else {
+		/* Disable subsecond comparison */
+		if (id == RTC_STM32_ALRM_A) {
+			LL_RTC_ALMA_SetSubSecond(RTC, 0);
+			LL_RTC_ALMA_SetSubSecondMask(RTC, 0);
+		} else if (id == RTC_STM32_ALRM_B) {
+			LL_RTC_ALMB_SetSubSecond(RTC, 0);
+			LL_RTC_ALMB_SetSubSecondMask(RTC, 0);
+		}
+	}
+#endif /* HW_SUBSECOND_ALARM_SUPPORT */
 
 	/* Enable Alarm */
 	rtc_stm32_enable_alarm(RTC, id);

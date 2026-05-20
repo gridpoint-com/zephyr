@@ -50,7 +50,14 @@ static const struct sx126x_config dev_config = {
 #if HAVE_GPIO_RX_ENABLE
 	.rx_enable = GPIO_DT_SPEC_INST_GET(0, rx_enable_gpios),
 #endif
+#if HAVE_GPIO_FE_CTRL
+	.fe_ctrl1_enable = GPIO_DT_SPEC_INST_GET(0, fe_ctrl1_enable_gpios),
+	.fe_ctrl2_enable = GPIO_DT_SPEC_INST_GET(0, fe_ctrl2_enable_gpios),
+	.fe_ctrl3_enable = GPIO_DT_SPEC_INST_GET(0, fe_ctrl3_enable_gpios),
+#endif
+
 };
+
 
 static struct sx126x_data dev_data;
 
@@ -253,28 +260,49 @@ void SX126xAntSwOff(void)
 #endif
 }
 
+#if HAVE_GPIO_TX_ENABLE
 static void sx126x_set_tx_enable(int value)
 {
-#if HAVE_GPIO_TX_ENABLE
 	gpio_pin_set_dt(&dev_config.tx_enable, value);
+}
+#endif
+
+#if HAVE_GPIO_RX_ENABLE
+static void sx126x_set_rx_enable(int value)
+{
+	gpio_pin_set_dt(&dev_config.rx_enable, value);
+}
+#endif
+
+
+static void sx126x_set_fe_ctrl(int ctrl1, int ctrl2, int ctrl3)
+{
+#if HAVE_GPIO_FE_CTRL
+	gpio_pin_set_dt(&dev_config.fe_ctrl1_enable, ctrl1);
+	gpio_pin_set_dt(&dev_config.fe_ctrl2_enable, ctrl2);
+	gpio_pin_set_dt(&dev_config.fe_ctrl3_enable, ctrl3);
 #endif
 }
 
-static void sx126x_set_rx_enable(int value)
-{
-#if HAVE_GPIO_RX_ENABLE
-	gpio_pin_set_dt(&dev_config.rx_enable, value);
-#endif
-}
 
 RadioOperatingModes_t SX126xGetOperatingMode(void)
 {
 	return dev_data.mode;
 }
 
+#define LORA_NODE DT_NODELABEL(lora)
+
+
 void SX126xSetOperatingMode(RadioOperatingModes_t mode)
 {
 	LOG_DBG("SetOperatingMode: %s (%i)", sx126x_mode_name(mode), mode);
+
+#if HAVE_GPIO_FE_CTRL
+	const int off_fe_ctrl_lines[]  = DT_PROP(LORA_NODE, off_fe_ctrl_lines);
+	const int rx_fe_ctrl_lines[]   = DT_PROP(LORA_NODE, rx_fe_ctrl_lines);
+	const int txhp_fe_ctrl_lines[] = DT_PROP(LORA_NODE, txhp_fe_ctrl_lines);
+	const int txlp_fe_ctrl_lines[] = DT_PROP(LORA_NODE, txlp_fe_ctrl_lines);
+#endif
 
 	dev_data.mode = mode;
 
@@ -284,15 +312,29 @@ void SX126xSetOperatingMode(RadioOperatingModes_t mode)
 	 */
 	switch (mode) {
 	case MODE_TX:
+#if HAVE_GPIO_TX_ENABLE
 		sx126x_set_rx_enable(0);
 		sx126x_set_tx_enable(1);
+#endif
+#if HAVE_GPIO_FE_CTRL
+		if (sx126x_get_tx_power_mode() == RFO_LP) {
+			sx126x_set_fe_ctrl(txlp_fe_ctrl_lines[0], txlp_fe_ctrl_lines[1], txlp_fe_ctrl_lines[2]);
+		} else {
+			sx126x_set_fe_ctrl(txhp_fe_ctrl_lines[0], txhp_fe_ctrl_lines[1], txhp_fe_ctrl_lines[2]);
+		}
+#endif
 		break;
 
 	case MODE_RX:
 	case MODE_RX_DC:
 	case MODE_CAD:
+#if HAVE_GPIO_TX_ENABLE
 		sx126x_set_tx_enable(0);
 		sx126x_set_rx_enable(1);
+#endif
+#if HAVE_GPIO_FE_CTRL
+		sx126x_set_fe_ctrl(rx_fe_ctrl_lines[0], rx_fe_ctrl_lines[1], rx_fe_ctrl_lines[2]);
+#endif
 		break;
 
 	case MODE_SLEEP:
@@ -300,8 +342,13 @@ void SX126xSetOperatingMode(RadioOperatingModes_t mode)
 		sx126x_dio1_irq_disable(&dev_data);
 		__fallthrough;
 	default:
+#if HAVE_GPIO_TX_ENABLE
 		sx126x_set_rx_enable(0);
 		sx126x_set_tx_enable(0);
+#endif
+#if HAVE_GPIO_FE_CTRL
+		sx126x_set_fe_ctrl(off_fe_ctrl_lines[0], off_fe_ctrl_lines[1], off_fe_ctrl_lines[2]);
+#endif
 		break;
 	}
 }
@@ -437,7 +484,14 @@ static int sx126x_lora_init(const struct device *dev)
 
 	if (sx12xx_configure_pin(antenna_enable, GPIO_OUTPUT_INACTIVE) ||
 	    sx12xx_configure_pin(rx_enable, GPIO_OUTPUT_INACTIVE) ||
-	    sx12xx_configure_pin(tx_enable, GPIO_OUTPUT_INACTIVE)) {
+	    sx12xx_configure_pin(tx_enable, GPIO_OUTPUT_INACTIVE)
+#if HAVE_GPIO_FE_CTRL
+		|| sx12xx_configure_pin(fe_ctrl1_enable, GPIO_OUTPUT_INACTIVE)
+		|| sx12xx_configure_pin(fe_ctrl2_enable, GPIO_OUTPUT_INACTIVE)
+		|| sx12xx_configure_pin(fe_ctrl3_enable, GPIO_OUTPUT_INACTIVE)
+#endif
+	)
+	{
 		return -EIO;
 	}
 
