@@ -22,15 +22,18 @@
 #include <kernel_internal.h>
 #include <zephyr/sys/check.h>
 
+#ifdef CONFIG_KERNEL_MEM_POOL
 struct alloc_node {
 	sys_sfnode_t node;
 	void *data;
 };
+#endif /* CONFIG_KERNEL_MEM_POOL */
 
 void *z_queue_node_peek(sys_sfnode_t *node, bool needs_free)
 {
 	void *ret;
 
+#ifdef CONFIG_KERNEL_MEM_POOL
 	if ((node != NULL) && (sys_sfnode_flags_get(node) != (uint8_t)0)) {
 		/* If the flag is set, then the enqueue operation for this item
 		 * did a behind-the scenes memory allocation of an alloc_node
@@ -44,7 +47,9 @@ void *z_queue_node_peek(sys_sfnode_t *node, bool needs_free)
 		if (needs_free) {
 			k_free(anode);
 		}
-	} else {
+	} else
+#endif /* CONFIG_KERNEL_MEM_POOL */
+	{
 		/* Data was directly placed in the queue, the first word
 		 * reserved for the linked list. User mode isn't allowed to
 		 * do this, although it can get data sent this way.
@@ -153,6 +158,7 @@ static int32_t queue_insert(struct k_queue *queue, void *prev, void *data,
 	}
 
 	/* Only need to actually allocate if no threads are pending */
+#ifdef CONFIG_KERNEL_MEM_POOL
 	if (alloc) {
 		struct alloc_node *anode;
 
@@ -164,7 +170,10 @@ static int32_t queue_insert(struct k_queue *queue, void *prev, void *data,
 		anode->data = data;
 		sys_sfnode_init(&anode->node, 0x1);
 		data = anode;
-	} else {
+	} else
+#endif /* CONFIG_KERNEL_MEM_POOL */
+	{
+		ARG_UNUSED(alloc);
 		sys_sfnode_init(data, 0x0);
 	}
 
@@ -212,6 +221,7 @@ void k_queue_prepend(struct k_queue *queue, void *data)
 	SYS_PORT_TRACING_OBJ_FUNC_EXIT(k_queue, prepend, queue);
 }
 
+#ifdef CONFIG_KERNEL_MEM_POOL
 int32_t z_impl_k_queue_alloc_append(struct k_queue *queue, void *data)
 {
 	SYS_PORT_TRACING_OBJ_FUNC_ENTER(k_queue, alloc_append, queue);
@@ -253,6 +263,7 @@ static inline int32_t z_vrfy_k_queue_alloc_prepend(struct k_queue *queue,
 }
 #include <zephyr/syscalls/k_queue_alloc_prepend_mrsh.c>
 #endif /* CONFIG_USERSPACE */
+#endif /* CONFIG_KERNEL_MEM_POOL */
 
 int k_queue_append_list(struct k_queue *queue, void *head, void *tail)
 {

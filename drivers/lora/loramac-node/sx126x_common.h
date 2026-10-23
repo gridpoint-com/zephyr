@@ -34,6 +34,8 @@
 	DT_INST_NODE_HAS_PROP(0, antenna_enable_gpios)
 #define HAVE_GPIO_TX_ENABLE	DT_INST_NODE_HAS_PROP(0, tx_enable_gpios)
 #define HAVE_GPIO_RX_ENABLE	DT_INST_NODE_HAS_PROP(0, rx_enable_gpios)
+#define HAVE_GPIO_FE_CTRL  (DT_INST_NODE_HAS_PROP(0, fe_ctrl1_enable_gpios) && !DT_INST_NODE_HAS_PROP(0, tx_enable_gpios))
+#define HAVE_PA_OUTPUT_LOCKED DT_INST_NODE_HAS_PROP(0, power_amplifier_output)
 
 struct sx126x_config {
 	struct spi_dt_spec bus;
@@ -46,6 +48,12 @@ struct sx126x_config {
 #if HAVE_GPIO_RX_ENABLE
 	struct gpio_dt_spec rx_enable;
 #endif
+#if HAVE_GPIO_FE_CTRL
+	struct gpio_dt_spec fe_ctrl3_enable;
+	struct gpio_dt_spec fe_ctrl2_enable;
+	struct gpio_dt_spec fe_ctrl1_enable;
+#endif
+
 };
 
 struct sx126x_data {
@@ -66,6 +74,13 @@ void sx126x_dio1_irq_enable(struct sx126x_data *dev_data);
 void sx126x_dio1_irq_disable(struct sx126x_data *dev_data);
 
 void sx126x_set_tx_params(int8_t power, RadioRampTimes_t ramp_time);
+
+enum sx126x_pa_output {
+	RFO_LP,
+	RFO_HP,
+};
+
+enum sx126x_pa_output sx126x_get_tx_power_mode(void);
 
 int sx126x_variant_init(const struct device *dev);
 

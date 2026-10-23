@@ -35,6 +35,45 @@ properties:
       Antenna switch RX enable GPIO. If set, the driver tracks the
       state of the radio and controls the RF switch.
 
+  txlp-fe-ctrl-lines:
+    type: array
+    description: |
+      RF front-end GPIO bit values to enable transmit low-power. Array
+      of 3 binary values corresponding to FE_CTRL1, FE_CTRL2, FE_CTRL3
+
+  txhp-fe-ctrl-lines:
+    type: array
+    description: |
+      RF front-end GPIO bit values to enable transmit high-power.  Array
+      of 3 binary values corresponding to FE_CTRL1, FE_CTRL2, FE_CTRL3
+
+  rx-fe-ctrl-lines:
+    type: array
+    description: |
+      RF front-end GPIO bit values to enable receive.  Array
+      of 3 binary values corresponding to FE_CTRL1, FE_CTRL2, FE_CTRL3
+
+  off-fe-ctrl-lines:
+    type: array
+    description: |
+      RF front-end GPIO bit values to switch off antenna.  Array
+      of 3 binary values corresponding to FE_CTRL1, FE_CTRL2, FE_CTRL3
+
+  fe-ctrl1-enable-gpios:
+    type: phandle-array
+    description: |
+      FE_CTRL1 signal GPIO controlling RF switch.
+
+  fe-ctrl2-enable-gpios:
+    type: phandle-array
+    description: |
+      FE_CTRL2 signal GPIO controlling RF switch.
+
+  fe-ctrl3-enable-gpios:
+    type: phandle-array
+    description: |
+      FE_CTRL3 signal GPIO controlling RF switch.
+
   dio1-gpios:
     type: phandle-array
     description: |
